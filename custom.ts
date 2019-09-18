@@ -33,32 +33,38 @@ enum TailPort {
 namespace finch {
 
     let readyToSend: boolean
+
     let waitTime_1 = 4
     let waitTime_2 = 100
     let waitTime_Initial = 500
     let waitTime_Start = 2000
+
     let FILLER_VALUE = 0xFF
     let FILLER_VALUE_2 = 0x00
+
+    //First defining byte of SPI commands
     let STOP_COMMAD = 0xDF
     let SET_LED_COMMAND = 0xD0
     let SET_MOTOR_COMMAND = 0xD2
     let SET_SINGLE_LED_COMMAND = 0xD3
+    let GET_WITH_OFFSET = 0xD4
+    let RESET_ENCODERS_COMMAND = 0xD5
 
+    //Differnet conversion factors
     let CONVERSION_FACTOR_CM_TICKS = 50.95
-    let ANGLE_TICKS_FACTOR = 2.805
+    let ANGLE_TICKS_FACTOR = 4.44
     let MINIMUM_SPEED = -127
     let MAXIMUM_SPEED = 127
-    let SPEED_CONVERSION_FACTOR = 2.805
+    let SPEED_CONVERSION_FACTOR = 0.45
     let BATT_FACTOR = 0.40
+    let NO_TICKS_ROTATION = 800
+
+    //SPI Pins
     let MOSI_PIN = DigitalPin.P15
     let MISO_PIN = DigitalPin.P14
     let SCK_PIN = DigitalPin.P13
     let SLAVESELECT_PIN = DigitalPin.P16
 
-
-    let tailPin: DigitalPin = DigitalPin.P2
-    let tailBuf: Buffer
-    let buzzerPin: DigitalPin = DigitalPin.P0
     let beakLEDR = 0
     let beakLEDG = 0
     let beakLEDB = 0
@@ -73,7 +79,12 @@ namespace finch {
 
     /**
      * This block is required for every Finch program.
+     * Wait to complete the bootloader routine
+     * Initiliaze the SPI with the respective pins with 1MHz clock
+     * Send stop if anything is running from previous state of the device
+     * Reset the encoders which also notes down the current encoder value
      */
+
     //% weight=32 blockId="startFN" block="Start Finch"
     export function startFinch(): void {
 
@@ -128,13 +139,54 @@ namespace finch {
         control.waitMicros(waitTime_1)
 
         pins.digitalWritePin(SLAVESELECT_PIN, 1)
-        //control.waitMicros(1000)
+
+    }
+
+
+    //Reset Command
+    export function resetEncodersSPI(): void {
+        control.waitMicros(waitTime_Initial)
+        pins.digitalWritePin(SLAVESELECT_PIN, 0)
+        control.waitMicros(waitTime_1)
+        pins.spiWrite(RESET_ENCODERS_COMMAND)       //1
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //2
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //3
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //4
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //5
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //6
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //7
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //8
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //9
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //10
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //11
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //12
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //13
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //14
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //15
+        control.waitMicros(waitTime_2)
+        pins.spiWrite(FILLER_VALUE)                 //16
+        control.waitMicros(waitTime_1)
+
+        pins.digitalWritePin(SLAVESELECT_PIN, 1)
 
     }
 
 
     //Utiltity function to send the LED command for beak and tail LED
-    //Stop Command
     export function sendLED(red: number = 50, green: number = 0, blue: number = 50): void {
         while (!readyToSend); // Wait for other functions in other threads
         readyToSend = false
@@ -257,7 +309,6 @@ namespace finch {
             beakLEDB = blue * 255 / 100
 
             sendSingleLED(portNumber, red, green, blue)
-
         }
     }
 
@@ -303,8 +354,6 @@ namespace finch {
     /**
      * Sends finch motor command
      */
-    //Minumum speed  -- 0  cm/sec
-    //Maximum Speed  -- 30 cm/sec
     export function sendMotor(l_velocity: number, l_dist: number, r_velocity: number, r_dist: number): void {
 
         let l_dist_ticks = 0
@@ -312,11 +361,6 @@ namespace finch {
 
         l_dist_ticks = l_dist
         r_dist_ticks = r_dist
-        /*
-        //Assuming distance in cm
-        l_dist_ticks = Math.round(l_dist * CONVERSION_FACTOR_CM_TICKS)
-        r_dist_ticks = Math.round(r_dist * CONVERSION_FACTOR_CM_TICKS)
-        */
 
         //TODO: Convert distance to ticks
         let l_ticks_3 = (l_dist_ticks & 0xFF0000) >> 16
@@ -378,8 +422,8 @@ namespace finch {
     /**
      * Moves the Finch forward or back a given distance at a given speed (0-100%).
      * @param direction Forward or Backward
-     * @param speed the speed as a percent for the motor [0 to 15]
-     * @param distance the discance to travel in cm
+     * @param distance the discance to travel in cm, eg:10
+     * @param speed the speed as a percent for the motor [0 to 40], eg:50
      */
     //% weight=27 blockId="setMove" block="Finch Move %direction| %distance|cm at %speed| \\%"
     //% speed.min=0 speed.max=100
@@ -393,8 +437,7 @@ namespace finch {
         if (speed < MINIMUM_SPEED) {
             speed = MINIMUM_SPEED
         }
-        //tick_speed = Math.round(speed * SPEED_CONVERSION_FACTOR)
-
+        speed = Math.round(speed * SPEED_CONVERSION_FACTOR)
         distance = Math.round(distance * CONVERSION_FACTOR_CM_TICKS)
         if (direction == MoveDir.Forward) {
             velocity = (0x80 | speed);
@@ -413,8 +456,8 @@ namespace finch {
     /**
      * Turns the Finch right or left a given angle at a given speed (0-100%). 
      * @param direction Right or Left
-     * @param speed the speed as a percent for the motor [0 to 100]
-     * @param angle the angle to turn in degrees
+     * @param angle the angle to turn in degrees,eg:90
+     * @param speed the speed as a percent for the motor [0 to 100],eg:50
      */
     //% weight=26 blockId="setTurn" block="Finch Turn %direction| %angle|° at %speed| \\%"
     //% speed.min=0 speed.max=100
@@ -427,7 +470,7 @@ namespace finch {
         let positionControlFlag = 0;
         l_dist = Math.round(ANGLE_TICKS_FACTOR * angle)
         r_dist = Math.round(ANGLE_TICKS_FACTOR * angle)
-        speed = Math.round(speed * 1.27)
+        speed = Math.round(speed * SPEED_CONVERSION_FACTOR)
         //basic.showNumber(speed)
         if (direction == RLDir.Left) {
             l_speed = (0x7F & speed);
@@ -449,9 +492,11 @@ namespace finch {
     }
 
     /**
+
      * Sets the rotation speeds of the left and right Finch wheels to values from -100 to 100%.
      * @param speed the speed as a percent for the motor [0 to 15]
      * @param distance the discance to travel in cm
+
      */
     //% weight=25 blockId="startMotors" block="Finch Wheels L %l_speed| \\% R %r_speed| \\%"
     //% l_speed.min=-100 l_speed.max=100
@@ -464,9 +509,7 @@ namespace finch {
         let l_tick_speed = 0
         let r_tick_speed = 0
 
-        l_speed = Math.round(l_speed * 1.27)
-        r_speed = Math.round(r_speed * 1.27)
-        /*
+
         //Left Motor
         if (l_speed > MAXIMUM_SPEED) {
             l_speed = MAXIMUM_SPEED
@@ -474,7 +517,7 @@ namespace finch {
         else if (l_speed < MINIMUM_SPEED) {
             l_speed = MINIMUM_SPEED
         }
-        */
+
 
         l_tick_speed = Math.round(Math.abs(l_speed) * SPEED_CONVERSION_FACTOR)
         if (l_speed > 0) {
@@ -485,14 +528,15 @@ namespace finch {
         }
 
         //Right Motor
-        if (r_speed > MAXIMUM_SPEED) {
+        if (r_speed >= MAXIMUM_SPEED) {
             r_speed = MAXIMUM_SPEED
         }
         else if (r_speed < MINIMUM_SPEED) {
             r_speed = MINIMUM_SPEED
         }
+
         r_tick_speed = Math.round(Math.abs(r_speed) * SPEED_CONVERSION_FACTOR)
-        if (r_speed > 0) {
+        if (r_speed >= 0) {
             r_velocity = (0x80 | r_tick_speed);
         }
         else {
@@ -528,7 +572,7 @@ namespace finch {
             control.waitMicros(waitTime_Initial)
             pins.digitalWritePin(SLAVESELECT_PIN, 0)
             control.waitMicros(waitTime_1)
-            sensor_vals[0] = pins.spiWrite(0xDE) //Firmware version
+            sensor_vals[0] = pins.spiWrite(GET_WITH_OFFSET) //Firmware version
             control.waitMicros(waitTime_2)
             sensor_vals[1] = pins.spiWrite(0xFF) //nothing
             control.waitMicros(waitTime_2)
@@ -566,7 +610,55 @@ namespace finch {
     }
 
     /**
-     * Reads the distance to the closest obstacle in centimeters.
+
+     * Returns the finch encoder value specified. Forward is +, Back is -
+     * Returns a value in rotations.
+     * @param encoder Right or Left
+     */
+    //% weight=22 blockId="resetEncoders" block="Finch Reset Encoders"
+    export function resetEncoders(): void {
+        resetEncodersSPI();
+    }
+
+    /**
+     * Returns the finch encoder value specified. Forward is +, Back is -
+     * Returns a value in rotations.
+     * @param encoder Right or Left
+     */
+    export function getPositionControlFlag(): number {
+        getSensors()
+        let return_val = 0
+        return_val = ((sensor_vals[6] & 0x80) >> 7)
+        return return_val
+    }
+
+    /**
+     * Returns the finch encoder value specified. Forward is +, Back is -
+     * Returns a value in rotations.
+     * @param encoder Right or Left
+     */
+    //% weight=22 blockId="getEncoder" block="Finch %encoder| Encoder"
+    export function getEncoder(encoder: RLDir): number {
+        getSensors()
+        let return_val = 0
+        if (encoder == RLDir.Right) {
+            return_val = (sensor_vals[12] << 16 | sensor_vals[13] << 8 | sensor_vals[14])
+        } else {
+            return_val = (sensor_vals[9] << 16 | sensor_vals[10] << 8 | sensor_vals[11])
+        }
+
+        if (return_val >= 0x800000) {
+            return_val = return_val | 0xFF000000;
+        }
+
+        return_val = (return_val / NO_TICKS_ROTATION)
+        Math.roundWithPrecision(return_val, 4)
+        return return_val
+    }
+
+    /**
+     * Returns the distance to the closest obstacle in cm
+
      */
     //% weight=21 blockId="getDistance" block="Finch Distance (cm)"
     export function getDistance(): number {
@@ -610,45 +702,7 @@ namespace finch {
         return Math.round(return_val)
     }
 
-    /**
-         * Sets the value of the left and right encoders to zero.
-         * @param encoder Right or Left
-         */
-    //% weight=22 blockId="resetEncoders" block="Finch Reset Encoders"
-    export function resetEncoders(): void {
-        getSensors()
-        rightEncoderOffset = (sensor_vals[12] << 16 | sensor_vals[13] << 8 | sensor_vals[14])
-        leftEncoderOffset = (sensor_vals[9] << 16 | sensor_vals[10] << 8 | sensor_vals[11])
-    }
-
-    /**
-     * Returns the finch encoder value specified. Forward is +, Back is -
-     * Returns a value in rotations.
-     * @param encoder Right or Left
-     */
-    export function getPositionControlFlag(): number {
-        getSensors()
-        let return_val = 0
-        return_val = ((sensor_vals[6] & 0x80) >> 7)
-        return return_val
-    }
-
-    /**
-     * Reads the number of rotations that the right or left wheel has turned.
-     * Returns a value in rotations.
-     * @param encoder Right or Left
-     */
-    //% weight=22 blockId="getEncoder" block="Finch %encoder| Encoder"
-    export function getEncoder(encoder: RLDir): number {
-        getSensors()
-        let return_val = 0
-        if (encoder == RLDir.Right) {
-            return_val = (sensor_vals[12] << 16 | sensor_vals[13] << 8 | sensor_vals[14]) - rightEncoderOffset
-        } else {
-            return_val = (sensor_vals[9] << 16 | sensor_vals[10] << 8 | sensor_vals[11]) - leftEncoderOffset
-        }
-        return return_val
-    }
+   
     /**
      * Reads the value of the battery in milliVolts. You may start to see
      * strange behavior when the value is below 4630 mV.
